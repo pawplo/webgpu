@@ -1,6 +1,7 @@
 <!-- Based off of https://github.com/austinEng/webgpu-samples/blob/master/compute_boids.html -->
 <!DOCTYPE html>
-<html>
+<html lang="en">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <title>boids</title>
 
 <style>
@@ -15,13 +16,8 @@ html, body, canvas {
 }
 </style>
 
-<head>
-<!--  <meta name="viewport" content="width=800"> -->
-  <title>WebGPU Compute Shader Flocking</title>
-</head>
-
 <body>
-  <span id="webgpu_error"> WebGPU error !!!</span>
+  <span id="webgpu_error"></span>
   <canvas></canvas>
  
 <script>
@@ -38,6 +34,9 @@ const wgslShaders = {
 [[location(0)]] var<in> a_particlePos : vec2<f32>;
 [[location(1)]] var<in> a_particleVel : vec2<f32>;
 [[location(2)]] var<in> a_pos : vec2<f32>;
+
+[[location(0)]] var<out> v_position : vec3<f32>;
+
 [[builtin(position)]] var<out> Position : vec4<f32>;
 
 [[stage(vertex)]]
@@ -47,16 +46,20 @@ fn main() -> void {
       (a_pos.x * cos(angle)) - (a_pos.y * sin(angle)),
       (a_pos.x * sin(angle)) + (a_pos.y * cos(angle)));
   Position = vec4<f32>(pos + a_particlePos, 0.0, 1.0);
+  v_position = Position.xyz;
   return;
 }
 `,
 
   fragment: `
+[[location(0)]] var<in> v_position : vec3<f32>;
+
 [[location(0)]] var<out> fragColor : vec4<f32>;
 
 [[stage(fragment)]]
 fn main() -> void {
-  fragColor = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+//  fragColor = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+  fragColor = vec4<f32>(v_position.x, v_position.y, 1.0, 1.0);
   return;
 }
 `,
@@ -125,11 +128,13 @@ fn main() -> void {
     // cMass =
     //  (cMass / vec2<f32>(f32(cMassCount), f32(cMassCount))) - vPos;
   }
+
   if (cVelCount > 0u) {
     var temp : f32 = f32(cVelCount);
     cVel = cVel / vec2<f32>(temp, temp);
     // cVel = cVel / vec2<f32>(f32(cVelCount), f32(cVelCount));
   }
+
   vVel = vVel + (cMass * params.rule1Scale) + (colVel * params.rule2Scale) +
       (cVel * params.rule3Scale);
 
@@ -153,6 +158,7 @@ fn main() -> void {
   // Write back
   particlesB.particles[index].pos = vPos;
   particlesB.particles[index].vel = vVel;
+
   return;
 }
 `,
@@ -161,6 +167,7 @@ fn main() -> void {
 async function init() {
   console.log("init()");
   const canvas = document.querySelector('canvas');
+
   //let size = window.innerWidth < window.innerHeight ? window.innerWidth : window.innerHeight;
   //size *= 0.75;
   //canvas.width = size;
@@ -169,19 +176,19 @@ async function init() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) {
-    webgpu_error("navigator.gpu.requestAdapter()");
-    return;
-  }
+  if (!navigator.gpu) { webgpu_error("!navigator.gpu"); return; }
 
-  const device = await adapter.requestDevice();
+  var adapter;
+  try { adapter = await navigator.gpu.requestAdapter(); }
+  catch (e) { webgpu_error(e); return; }
+  if (!adapter) { webgpu_error("navigator.gpu.requestAdapter()"); return; }
+
+  var device;
+  try { device = await adapter.requestDevice(); }
+  catch (e) { webgpu_error(e); return; }
 
   const context = canvas.getContext('gpupresent');
-  if (!context) {
-    webgpu_error("canvas.getContext('gpupresent')");
-    return;
-  }
+  if (!context) { webgpu_error("canvas.getContext('gpupresent')"); return; }
 
   const swapChain = context.configureSwapChain({
     device,
@@ -284,6 +291,7 @@ async function init() {
     },
   };
 
+
   const vertexBufferData = new Float32Array([
     -0.01,
     -0.02,
@@ -292,15 +300,14 @@ async function init() {
     0.0,
     0.02,
   ]);
-
   const verticesBuffer = device.createBuffer({
     size: vertexBufferData.byteLength,
     usage: GPUBufferUsage.VERTEX,
     mappedAtCreation: true,
   });
-
   new Float32Array(verticesBuffer.getMappedRange()).set(vertexBufferData);
   verticesBuffer.unmap();
+
 
   const simParamData = new Float32Array([
     0.04, // deltaT;
@@ -311,15 +318,14 @@ async function init() {
     0.05, // rule2Scale;
     0.005, // rule3Scale;
   ]);
-
   const simParamBuffer = device.createBuffer({
     size: simParamData.byteLength,
     usage: GPUBufferUsage.UNIFORM,
     mappedAtCreation: true,
   });
-
   new Float32Array(simParamBuffer.getMappedRange()).set(simParamData);
   simParamBuffer.unmap();
+
 
   const initialParticleData = new Float32Array(numParticles * 4);
   for (let i = 0; i < numParticles; ++i) {
@@ -328,7 +334,6 @@ async function init() {
     initialParticleData[4 * i + 2] = 2 * (Math.random() - 0.5) * 0.1;
     initialParticleData[4 * i + 3] = 2 * (Math.random() - 0.5) * 0.1;
   }
-
   const particleBuffers = new Array(2);
   const particleBindGroups = new Array(2);
   for (let i = 0; i < 2; ++i) {
@@ -342,6 +347,7 @@ async function init() {
     );
     particleBuffers[i].unmap();
   }
+
 
   for (let i = 0; i < 2; ++i) {
     particleBindGroups[i] = device.createBindGroup({
@@ -383,21 +389,20 @@ async function init() {
       .createView();
 
     const commandEncoder = device.createCommandEncoder();
-    {
-      const passEncoder = commandEncoder.beginComputePass();
-      passEncoder.setPipeline(computePipeline);
-      passEncoder.setBindGroup(0, particleBindGroups[t % 2]);
-      passEncoder.dispatch(numParticles);
-      passEncoder.endPass();
-    }
-    {
-      const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-      passEncoder.setPipeline(renderPipeline);
-      passEncoder.setVertexBuffer(0, particleBuffers[(t + 1) % 2]);
-      passEncoder.setVertexBuffer(1, verticesBuffer);
-      passEncoder.draw(3, numParticles, 0, 0);
-      passEncoder.endPass();
-    }
+
+    const passEncoder = commandEncoder.beginComputePass();
+    passEncoder.setPipeline(computePipeline);
+    passEncoder.setBindGroup(0, particleBindGroups[t % 2]);
+    passEncoder.dispatch(numParticles);
+    passEncoder.endPass();
+
+    const passEncoder2 = commandEncoder.beginRenderPass(renderPassDescriptor);
+    passEncoder2.setPipeline(renderPipeline);
+    passEncoder2.setVertexBuffer(0, particleBuffers[(t + 1) % 2]);
+    passEncoder2.setVertexBuffer(1, verticesBuffer);
+    passEncoder2.draw(3, numParticles, 0, 0);
+    passEncoder2.endPass();
+
     device.queue.submit([commandEncoder.finish()]);
 
     ++t;
@@ -405,14 +410,9 @@ async function init() {
   }
 
   requestAnimationFrame(frame);
-
 }
 
-
-if (!navigator.gpu)
-  webgpu_error("!navigator.gpu");
-else
-  init();
+init();
 
 </script>
 
