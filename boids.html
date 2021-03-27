@@ -291,23 +291,20 @@ async function init() {
     },
   };
 
+  function create_buffer(bufferData, usage)
+  {
+    const buffer = device.createBuffer({
+      size: bufferData.byteLength,
+      usage: usage,
+      mappedAtCreation: true,
+    });
+    new Float32Array(buffer.getMappedRange()).set(bufferData);
+    buffer.unmap();
+    return buffer;
+  }
 
-  const vertexBufferData = new Float32Array([
-    -0.01,
-    -0.02,
-    0.01,
-    -0.02,
-    0.0,
-    0.02,
-  ]);
-  const verticesBuffer = device.createBuffer({
-    size: vertexBufferData.byteLength,
-    usage: GPUBufferUsage.VERTEX,
-    mappedAtCreation: true,
-  });
-  new Float32Array(verticesBuffer.getMappedRange()).set(vertexBufferData);
-  verticesBuffer.unmap();
-
+  const vertexBufferData = new Float32Array([ -0.01, -0.02, 0.01, -0.02, 0.0, 0.02 ])
+  const verticesBuffer = create_buffer(vertexBufferData, GPUBufferUsage.VERTEX);
 
   const simParamData = new Float32Array([
     0.04, // deltaT;
@@ -318,14 +315,7 @@ async function init() {
     0.05, // rule2Scale;
     0.005, // rule3Scale;
   ]);
-  const simParamBuffer = device.createBuffer({
-    size: simParamData.byteLength,
-    usage: GPUBufferUsage.UNIFORM,
-    mappedAtCreation: true,
-  });
-  new Float32Array(simParamBuffer.getMappedRange()).set(simParamData);
-  simParamBuffer.unmap();
-
+  const simParamBuffer = create_buffer(simParamData, GPUBufferUsage.UNIFORM);
 
   const initialParticleData = new Float32Array(numParticles * 4);
   for (let i = 0; i < numParticles; ++i) {
@@ -336,18 +326,9 @@ async function init() {
   }
   const particleBuffers = new Array(2);
   const particleBindGroups = new Array(2);
-  for (let i = 0; i < 2; ++i) {
-    particleBuffers[i] = device.createBuffer({
-      size: initialParticleData.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE,
-      mappedAtCreation: true,
-    });
-    new Float32Array(particleBuffers[i].getMappedRange()).set(
-      initialParticleData
-    );
-    particleBuffers[i].unmap();
-  }
-
+  for (let i = 0; i < 2; ++i)
+    particleBuffers[i] = create_buffer(initialParticleData,
+              GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE);
 
   for (let i = 0; i < 2; ++i) {
     particleBindGroups[i] = device.createBindGroup({
