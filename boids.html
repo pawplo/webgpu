@@ -27,7 +27,7 @@ function webgpu_error(str)
   document.getElementById("webgpu_error").style.display = 'inline';
 }
 
-const numParticles = 1500;
+const numParticles = 1000;
 
 const wgslShaders = {
   vertex: `
@@ -382,6 +382,7 @@ async function init() {
   }
 
   let t = 0;
+  let now = Date.now();
 
   function frame() {
     renderPassDescriptor.colorAttachments[0].attachment = swapChain
@@ -405,6 +406,11 @@ async function init() {
 
     device.queue.submit([commandEncoder.finish()]);
 
+    if ((t % 200) == 0) {
+      let now_copy = now;
+      now = Date.now();
+      console.log((now - now_copy)/200.0+" fps");
+    }
     ++t;
     requestAnimationFrame(frame);
   }
