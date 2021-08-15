@@ -1,3 +1,3 @@
 # webgpu
 
-http://pawplo.github.io/webgpu/
+http://pawplo.github.io/webgpu/boids/
