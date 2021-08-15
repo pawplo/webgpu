@@ -1,4 +1,4 @@
-// Based off of https://github.com/austinEng/webgpu-samples/blob/master/compute_boids.html
+// Based off of https://github.com/austinEng/webgpu-samples
 import * as global from "./global.js";
 import * as wgsl from "./wgsl.js";
 

@@ -1,3 +1,4 @@
+// Based off of https://github.com/austinEng/webgpu-samples
 export const wgslShaders = {
   vertex: `
 struct position_out {
