@@ -34,26 +34,19 @@ async function init()
     format: 'bgra8unorm',
   });
 
+  let vertex_fragment_shader = device.createShaderModule({ code: wgsl.wgsl_shaders.vertex_fragment, });
   const render_pipe_line = device.createRenderPipeline({
     vertex: {
-      module:
-            device.createShaderModule({
-            code: wgsl.wgsl_shaders.vertex,
-          }),
-      entryPoint: 'main',
+      module: vertex_fragment_shader,
+      entryPoint: 'vertex_main',
       buffers: [
         {
-          arrayStride: 4 * 4,
+          arrayStride: 2 * 4,
           stepMode: 'instance',
           attributes: [
             {
               shaderLocation: 0, // [x, y]
               offset: 0,
-              format: 'float32x2',
-            },
-            {
-              shaderLocation: 1, // [selected, ]
-              offset: 2 * 4,
               format: 'float32x2',
             },
           ],
@@ -63,20 +56,28 @@ async function init()
           stepMode: 'vertex',
           attributes: [
             {
-              shaderLocation: 2, // [dot rect, ]
+              shaderLocation: 1, // [dot rect, ]
               offset: 0,
               format: 'float32x2',
+            },
+          ],
+        },
+        {
+          arrayStride: 1 * 4,
+          stepMode: 'instance',
+          attributes: [
+            {
+              shaderLocation: 2, // [selected, ]
+              offset: 0,
+              format: 'uint32',
             },
           ],
         },
       ],
     },
     fragment: {
-      module:
-          device.createShaderModule({
-            code: wgsl.wgsl_shaders.fragment,
-          }),
-      entryPoint: 'main',
+      module: vertex_fragment_shader,
+      entryPoint: 'fragment_main',
       targets: [
         {
           format: 'bgra8unorm',
@@ -133,18 +134,30 @@ async function init()
   ]);
   const uniform_buffer = create_buffer(uniform_array, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
 
-  const dots_array = new Float32Array(global.num_dots * 4);
+  const dots_array = new Float32Array(global.num_dots * 2);
   for (let i = 0; i < global.num_dots; ++i) {
-    dots_array[i * 4    ] = 2 * (Math.random() - 0.5);
-    dots_array[i * 4 + 1] = 2 * (Math.random() - 0.5);
-    dots_array[i * 4 + 2] = 0.0;
-    dots_array[i * 4 + 3] = 0.0;
+    dots_array[i * 2    ] = 2 * (Math.random() - 0.5);
+    dots_array[i * 2 + 1] = 2 * (Math.random() - 0.5);
+//    dots_array[i * 4 + 2] = 0.0;
+//    dots_array[i * 4 + 3] = 0.0;
   }
-    const dots_buffer = create_buffer(dots_array,
-              GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE);
+  const dots_select_array = new Uint32Array(global.num_dots);
+  for (let i = 0; i < global.num_dots; ++i) {
+    dots_array[i] = 0;
+  }
+  const dots_select_buffer = create_buffer(dots_select_array, GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE);
 
-    const dots_bind_group = device.createBindGroup({
-      layout: compute_pipe_line.getBindGroupLayout(0),
+  const dots_buffers = new Array(2);
+  const dots_bind_groups = new Array(2);
+  for (let i = 0; i < 2; ++i)
+    dots_buffers[i] = create_buffer(dots_array, GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE);
+
+  //const dots_buffer = create_buffer(dots_array, GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE);
+
+  for (let i = 0; i < 2; ++i) {
+    //const dots_bind_group = device.createBindGroup({
+    dots_bind_groups[i] = device.createBindGroup({
+        layout: compute_pipe_line.getBindGroupLayout(0),
       entries: [
         {
           binding: 0,
@@ -157,14 +170,32 @@ async function init()
         {
           binding: 1,
           resource: {
-            buffer: dots_buffer,
+            buffer: dots_buffers[i],
             offset: 0,
             size: dots_array.byteLength,
           },
         },
+        {
+          binding: 2,
+          resource: {
+            buffer: dots_buffers[(i + 1) % 2],
+            offset: 0,
+            size: dots_array.byteLength,
+          },
+        },
+        {
+          binding: 3,
+          resource: {
+            buffer: dots_select_buffer,
+            offset: 0,
+            size: dots_select_array.byteLength,
+          },
+        },
       ],
     });
+  }
 
+  let t = 0;
   let now = Date.now();
   let now_copy = now;
 
@@ -181,19 +212,21 @@ async function init()
 
     const compute_pass = command_encoder.beginComputePass();
     compute_pass.setPipeline(compute_pipe_line);
-    compute_pass.setBindGroup(0, dots_bind_group);
+    compute_pass.setBindGroup(0, dots_bind_groups[t % 2]);
     compute_pass.dispatch(global.num_dots);
     compute_pass.endPass();
 
     const render_pass = command_encoder.beginRenderPass(render_pass_descriptor);
     render_pass.setPipeline(render_pipe_line);
-    render_pass.setVertexBuffer(0, dots_buffer);
+    render_pass.setVertexBuffer(0, dots_buffers[(t + 1) % 2]);
     render_pass.setVertexBuffer(1, dot_rect_buffer);
+    render_pass.setVertexBuffer(2, dots_select_buffer);
     render_pass.draw(6, global.num_dots, 0, 0);
     render_pass.endPass();
 
     device.queue.submit([command_encoder.finish()]);
 
+    t++;
   }
 
   function mousemove_event(e)
