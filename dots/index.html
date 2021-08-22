@@ -129,7 +129,7 @@ fn main([[builtin(global_invocation_id)]] GlobalInvocationID : vec3<u32>) {
 
   if (uni.mouse_state == ${mouse.DOWN}.0) {
     v = dots_index_xy - uni.mouse_xy;
-    if (length(v) < ${dot_diameter}) {
+    if (length(v) < ${dot_radius}) {
       dots.dots[index].select = vec2<f32>(1.0, 0.0);
     } else {
       dots.dots[index].select = vec2<f32>(0.0, 0.0);
