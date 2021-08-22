@@ -16,7 +16,7 @@ export const uniform = {
 export function webgpu_error(str)
 {
   document.getElementById("webgpu_error").innerText = "webgpu error: [ "+str+" ]";
-  document.getElementById("webgpu_error").style.display = 'inline';
+//  document.getElementById("webgpu_error").style.display = 'inline';
 }
 
 export const num_dots = 1000;
