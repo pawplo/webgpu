@@ -1,0 +1,429 @@
+<!-- Based off of https://github.com/austinEng/webgpu-samples -->
+<!DOCTYPE html>
+<html lang="en">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>demo</title>
+
+<style>
+html, body, canvas {
+  margin: 0px;
+  padding: 0px;
+//  width: 100%;
+//  height: 100%;
+}
+#webgpu_error {
+  display: none;
+}
+</style>
+
+<body>
+  <span id="webgpu_error"></span>
+  <canvas></canvas>
+
+<script>
+const mouse = {
+  MOVE_UP:   0.0,
+  MOVE_DOWN: 1.0,
+  UP:        2.0,
+  DOWN:      3.0,
+}
+
+const uniform = {
+    MOUSE_X_LAST: 0,
+    MOUSE_Y_LAST: 1,
+    MOUSE_X: 2,
+    MOUSE_Y: 3,
+    EVENT: 4,
+}
+
+function webgpu_error(str)
+{
+  document.getElementById("webgpu_error").innerText = "webgpu error: [ "+str+" ]";
+  document.getElementById("webgpu_error").style.display = 'inline';
+}
+
+const num_dots = 1000;
+const dot_radius = 0.05;
+const dot_diameter = dot_radius * 2.0;
+
+let render_max_interval_ms = 10;
+
+const wgsl_shaders = {
+  vertex: `
+struct position_out {
+[[location(0)]] v_dot_select : u32;
+[[location(1)]] v_dot_rect_pos : vec2<f32>;
+[[builtin(position)]] Position : vec4<f32>;
+};
+
+[[stage(vertex)]]
+fn main([[location(0)]] a_dot_pos : vec2<f32>,
+        [[location(1)]] a_dot_select : vec2<f32>,
+        [[location(2)]] a_dot_rect_pos : vec2<f32>
+) -> position_out {
+  var output : position_out;
+  output.Position = vec4<f32>(a_dot_rect_pos + a_dot_pos, 0.0, 1.0);
+//  v_position = Position.xyz;
+  if (a_dot_select.x == 0.0) {
+    output.v_dot_select = 0u;
+  } else {
+    output.v_dot_select = 1u;
+  }
+  output.v_dot_rect_pos = a_dot_rect_pos;
+  return output;
+}
+`,
+
+  fragment: `
+struct position_in {
+[[location(0)]] v_dot_select : u32;
+[[location(1)]] v_dot_rect_pos : vec2<f32>;
+[[builtin(position)]] Position : vec4<f32>;
+};
+
+[[stage(fragment)]]
+fn main(input: position_in) -> [[location(0)]] vec4<f32> {
+  if (length(input.v_dot_rect_pos) > ${dot_radius}) {
+    discard;
+  }
+
+  if (input.v_dot_select == 0u) {
+    return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+  }
+
+  return vec4<f32>(0.0, 1.0, 0.0, 1.0);
+}
+`,
+
+  compute: `
+[[block]] struct u_struct {
+  mouse_xy_last : vec2<f32>;
+  mouse_xy :      vec2<f32>;
+  mouse_state :  f32;
+};
+
+struct dot_struct {
+  xy : vec2<f32>;
+  select : vec2<f32>;
+};
+
+[[block]] struct dots_array_struct {
+  dots : [[stride(16)]] array<dot_struct, ${num_dots}>;
+};
+
+[[binding(0), group(0)]] var<uniform> uni : u_struct;
+[[binding(1), group(0)]] var<storage, read_write> dots : dots_array_struct;
+
+
+[[stage(compute), workgroup_size(64)]]
+fn main([[builtin(global_invocation_id)]] GlobalInvocationID : vec3<u32>) {
+  var index : u32 = GlobalInvocationID.x;
+  if (index >= ${num_dots}u) { return; }
+
+  var dots_index_xy : vec2<f32> = dots.dots[index].xy;
+
+  var v : vec2<f32>;
+  if (uni.mouse_state == ${mouse.UP}.0) {
+    dots.dots[index].select = vec2<f32>(0.0, 0.0);
+  }
+
+  if (uni.mouse_state == ${mouse.DOWN}.0) {
+    v = dots_index_xy - uni.mouse_xy;
+    if (length(v) < ${dot_diameter}) {
+      dots.dots[index].select = vec2<f32>(1.0, 0.0);
+    } else {
+      dots.dots[index].select = vec2<f32>(0.0, 0.0);
+    }
+  }
+
+  var xy_sum : vec2<f32> = vec2<f32>(0.0, 0.0);
+
+  if (uni.mouse_state == ${mouse.MOVE_DOWN}.0 || uni.mouse_state == ${mouse.UP}.0) {
+
+    if (dots.dots[index].select.x == 0.0) {
+      for (var i : u32 = 0u; i < ${num_dots}u; i = i + 1u) {
+        if (i != index) {
+          v = (dots_index_xy - dots.dots[i].xy);
+          if ((length(v) < (${dot_diameter}))) {
+            v = (normalize(v) *  ${dot_diameter} - v);
+            if (length(uni.mouse_xy - dots_index_xy - v) < length(uni.mouse_xy - dots_index_xy + v)) {
+              continue;
+            }
+            xy_sum = xy_sum + v;
+          }
+        }
+      }
+
+//      if (length(uni.mouse_xy - dots_index_xy - xy_sum) > length(uni.mouse_xy - dots_index_xy + xy_sum)) {
+        dots_index_xy = dots_index_xy + xy_sum;
+//    }
+
+    } else {
+      dots_index_xy = dots_index_xy + (uni.mouse_xy - uni.mouse_xy_last);
+    }
+
+  }
+
+  // if (dots_index_xy.x < -1.0) { dots_index_xy.x =  1.0; }
+  // if (dots_index_xy.x >  1.0) { dots_index_xy.x = -1.0; }
+  // if (dots_index_xy.y < -1.0) { dots_index_xy.y =  1.0; }
+  // if (dots_index_xy.y >  1.0) { dots_index_xy.y = -1.0; }
+
+  dots.dots[index].xy = dots_index_xy;
+  return;
+}
+`,
+};
+
+async function init()
+{
+  const canvas = document.querySelector('canvas');
+
+  const canvas_size = (window.innerWidth > window.innerHeight) ?
+      window.innerHeight : window.innerWidth;
+  canvas.width = canvas_size;
+  canvas.height = canvas_size;
+//  canvas.width = window.innerWidth;
+//  canvas.height = window.innerHeight;
+
+  if (!navigator.gpu) { webgpu_error("!navigator.gpu"); return; }
+
+  var adapter;
+  try { adapter = await navigator.gpu.requestAdapter(); }
+  catch (e) { webgpu_error(e); return; }
+  if (!adapter) { webgpu_error("navigator.gpu.requestAdapter()"); return; }
+
+  var device;
+  try { device = await adapter.requestDevice(); }
+  catch (e) { webgpu_error(e); return; }
+
+  const context = canvas.getContext('webgpu');
+  if (!context) { webgpu_error("canvas.getContext('webgpu')"); return; }
+
+  context.configure({
+    device,
+    format: 'bgra8unorm',
+  });
+
+  const render_pipe_line = device.createRenderPipeline({
+    vertex: {
+      module:
+            device.createShaderModule({
+            code: wgsl_shaders.vertex,
+          }),
+      entryPoint: 'main',
+      buffers: [
+        {
+          arrayStride: 4 * 4,
+          stepMode: 'instance',
+          attributes: [
+            {
+              shaderLocation: 0, // [x, y]
+              offset: 0,
+              format: 'float32x2',
+            },
+            {
+              shaderLocation: 1, // [selected, ]
+              offset: 2 * 4,
+              format: 'float32x2',
+            },
+          ],
+        },
+        {
+          arrayStride: 2 * 4,
+          stepMode: 'vertex',
+          attributes: [
+            {
+              shaderLocation: 2, // [dot rect, ]
+              offset: 0,
+              format: 'float32x2',
+            },
+          ],
+        },
+      ],
+    },
+    fragment: {
+      module:
+          device.createShaderModule({
+            code: wgsl_shaders.fragment,
+          }),
+      entryPoint: 'main',
+      targets: [
+        {
+          format: 'bgra8unorm',
+        },
+      ],
+    },
+    primitive: {
+      topology: 'triangle-list',
+    },
+  });
+
+  const compute_pipe_line = device.createComputePipeline({
+    compute: {
+      module:
+          device.createShaderModule({
+            code: wgsl_shaders.compute,
+          }),
+      entryPoint: 'main',
+    },
+  });
+
+  const render_pass_descriptor = {
+    colorAttachments: [
+      {
+        view: undefined,
+        loadValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+      },
+    ],
+  };
+
+  function create_buffer(bufferData, usage)
+  {
+    const buffer = device.createBuffer({
+      size: bufferData.byteLength,
+      usage: usage,
+      mappedAtCreation: true,
+    });
+    new Float32Array(buffer.getMappedRange()).set(bufferData);
+    buffer.unmap();
+    return buffer;
+  }
+
+  const dot_rect_array = new Float32Array([  dot_radius,  dot_radius, -dot_radius,  dot_radius,  dot_radius, -dot_radius,
+                                              -dot_radius,  dot_radius,  dot_radius, -dot_radius, -dot_radius, -dot_radius, ])
+  const dot_rect_buffer = create_buffer(dot_rect_array, GPUBufferUsage.VERTEX);
+
+  const uniform_array = new Float32Array([
+    0.0, //MOUSE_X_LAST
+    0.0, //MOUSE_Y_LAST
+    0.0, //MOUSE_X
+    0.0, //MOUSE_Y
+    0.0, //EVENT
+  ]);
+  const uniform_buffer = create_buffer(uniform_array, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+
+  const dots_array = new Float32Array(num_dots * 4);
+  for (let i = 0; i < num_dots; ++i) {
+    dots_array[i * 4    ] = 2 * (Math.random() - 0.5);
+    dots_array[i * 4 + 1] = 2 * (Math.random() - 0.5);
+    dots_array[i * 4 + 2] = 0.0;
+    dots_array[i * 4 + 3] = 0.0;
+  }
+    const dots_buffer = create_buffer(dots_array,
+              GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE);
+
+    const dots_bind_group = device.createBindGroup({
+      layout: compute_pipe_line.getBindGroupLayout(0),
+      entries: [
+        {
+          binding: 0,
+          resource: {
+            buffer: uniform_buffer,
+            offset: 0,
+            size: uniform_buffer.byteLength,
+          },
+        },
+        {
+          binding: 1,
+          resource: {
+            buffer: dots_buffer,
+            offset: 0,
+            size: dots_array.byteLength,
+          },
+        },
+      ],
+    });
+
+  let now = Date.now();
+  let now_copy = now;
+
+  var mouse_move = 0;
+  function render()
+  {
+    device.queue.writeBuffer( uniform_buffer, 0,
+      uniform_array.buffer, uniform_array.byteOffset, uniform_array.byteLength,
+    );
+
+    const command_encoder = device.createCommandEncoder();
+
+    render_pass_descriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
+
+    const compute_pass = command_encoder.beginComputePass();
+    compute_pass.setPipeline(compute_pipe_line);
+    compute_pass.setBindGroup(0, dots_bind_group);
+    compute_pass.dispatch(num_dots);
+    compute_pass.endPass();
+
+    const render_pass = command_encoder.beginRenderPass(render_pass_descriptor);
+    render_pass.setPipeline(render_pipe_line);
+    render_pass.setVertexBuffer(0, dots_buffer);
+    render_pass.setVertexBuffer(1, dot_rect_buffer);
+    render_pass.draw(6, num_dots, 0, 0);
+    render_pass.endPass();
+
+    device.queue.submit([command_encoder.finish()]);
+
+  }
+
+  function mousemove_event(e)
+  {
+    if (uniform_array[uniform.EVENT] == mouse.DOWN || uniform_array[uniform.EVENT] == mouse.MOVE_DOWN ) {
+//      let x=e.layerX; let y=e.layerY;
+//      console.log("left move x="+x+" y="+y);
+
+      now = Date.now();
+      if ((now - now_copy) > render_max_interval_ms) {
+        now_copy = now;
+        let x=e.layerX; let y=e.layerY;
+//      console.log("left move x="+x+" y="+y);
+        uniform_array[uniform.EVENT] = mouse.MOVE_DOWN;
+        uniform_array[uniform.MOUSE_X_LAST] = uniform_array[uniform.MOUSE_X];
+        uniform_array[uniform.MOUSE_Y_LAST] = uniform_array[uniform.MOUSE_Y];
+        uniform_array[uniform.MOUSE_X] = (x/(canvas.width)*2.0)-1.0;
+        uniform_array[uniform.MOUSE_Y] = -(y/(canvas.height)*2.0)+1.0;
+        render();
+      } //else { console.log("(now - now_copy)="+(now - now_copy)); }
+    }
+  }
+
+  function mousedown_event(e)
+  {
+//    if (e.button == 0) {
+      let x=e.layerX; let y=e.layerY;
+//      console.log("down x="+x+" y="+y);
+      uniform_array[uniform.EVENT] = mouse.DOWN;
+      uniform_array[uniform.MOUSE_X] = (x/(canvas.width)*2.0)-1.0;
+      uniform_array[uniform.MOUSE_Y] = -(y/(canvas.height)*2.0)+1.0;
+      render();
+//    }
+  }
+
+  function mouseup_event(e)
+  {
+//    if (e.button == 0) {
+      let x=e.layerX; let y=e.layerY;
+//      console.log("up x="+x+" y="+y);
+      uniform_array[uniform.EVENT] = mouse.UP;
+      uniform_array[uniform.MOUSE_X_LAST] = uniform_array[uniform.MOUSE_X];
+      uniform_array[uniform.MOUSE_Y_LAST] = uniform_array[uniform.MOUSE_Y];
+      uniform_array[uniform.MOUSE_X] = (x/(canvas.width)*2.0)-1.0;
+      uniform_array[uniform.MOUSE_Y] = -(y/(canvas.height)*2.0)+1.0;
+      render();
+//    }
+  }
+
+  canvas.addEventListener('mousemove', mousemove_event, false);
+  canvas.addEventListener('mousedown', mousedown_event, false);
+  canvas.addEventListener('mouseup', mouseup_event, false);
+
+  requestAnimationFrame(render);
+}
+
+init();
+
+</script>
+
+</body>
+
+</html>
