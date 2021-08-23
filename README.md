@@ -3,6 +3,7 @@
 http://pawplo.github.io/webgpu/boids/
 
 http://pawplo.github.io/webgpu/dots/
+http://pawplo.github.io/webgpu/dots_canvas.html
 
 ## License Information
 

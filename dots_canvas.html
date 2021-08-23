@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>dots_canvas</title>
+    <style>
+      * {
+        margin: 0px;
+        padding: 0px;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas>
+    </canvas>
+    <script>
+    const num_dots = 1000;
+
+    var dots_x = [];
+    var dots_y = [];
+    var dots_select = [];
+
+    var dot_size = 20;
+    var dot_diameter = dot_size * 2.0;
+
+    var canvas;
+    var ctx;
+
+    var mouse_down = false;
+    var mouse_x;
+    var mouse_y;
+    var mouse_x_last;
+    var mouse_y_last;
+
+    function render() {
+        //ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.rect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#000000";
+        ctx.fill();
+
+        for (let i = 0; i < num_dots; i++) {
+            if (dots_select[i] == true)
+                ctx.fillStyle = "#00ff00";
+            else
+                ctx.fillStyle = "#ff0000";
+
+            ctx.beginPath();
+            ctx.arc(dots_x[i], dots_y[i], dot_size, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+    }
+
+    function length(x, y)
+    {
+        return Math.sqrt(x*x + y*y);
+    }
+
+    function mousemove_event(e)
+    {
+        if (mouse_down === false)
+            return;
+
+        mouse_x_last = mouse_x;
+        mouse_y_last = mouse_y;
+        mouse_x = e.layerX;
+        mouse_y = e.layerY;
+
+        for (let i = 0; i < num_dots; i++) {
+            let x_sum = 0;
+            let y_sum = 0;
+            if (dots_select[i] === false) {
+                for (let j = 0; j < num_dots; j++) {
+                    if (i !== j) {
+                        var v_x, v_y;
+                        v_x = dots_x[i] - dots_x[j];
+                        v_y = dots_y[i] - dots_y[j];
+                        var v_length = length(v_x, v_y);
+                        if ((v_length < (dot_diameter * 1.0))) {
+                            v_x = (v_x / v_length) *  dot_diameter - v_x;
+                            v_y = (v_y / v_length) *  dot_diameter - v_y;
+
+                            if (length(mouse_x - dots_x[i] - v_x, mouse_y - dots_y[i] - v_y) <
+                                    length(mouse_x - dots_x[i] + v_x, mouse_y - dots_y[i] + v_y)) {
+                                continue;
+                            }
+                            x_sum = x_sum + v_x;
+                            y_sum = y_sum + v_y;
+                        }
+                    }
+                }
+                dots_x[i] = dots_x[i] + x_sum;
+                dots_y[i] = dots_y[i] + y_sum;
+            } else {
+                dots_x[i] = dots_x[i] + (mouse_x - mouse_x_last);
+                dots_y[i] = dots_y[i] + (mouse_y - mouse_y_last);
+          }
+        }
+        window.requestAnimationFrame(render);
+    }
+
+    function mousedown_event(e)
+    {
+        mouse_down = true;
+        mouse_x = e.layerX;
+        mouse_y = e.layerY;
+        mouse_x_last = mouse_x;
+        mouse_y_last = mouse_y;
+
+        for (let i = 0; i < num_dots; i++) {
+            if (length( mouse_x - dots_x[i], mouse_y - dots_y[i]) < dot_size) {
+                dots_select[i] = true;
+            }
+        }
+        window.requestAnimationFrame(render);
+    }
+
+    function mouseup_event(e)
+    {
+        mouse_down = false;
+        for (let i = 0; i < num_dots; i++) {
+            dots_select[i] = false;
+        }
+        window.requestAnimationFrame(render);
+    }
+
+    window.onload = function() {
+        canvas = document.querySelector('canvas');
+        ctx = canvas.getContext("2d");
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        for (var i = 0; i < num_dots; i++) {
+            dots_x[i] = Math.random() * canvas.width;
+            dots_y[i] = Math.random() * canvas.height;
+            dots_select[i] = false;
+        }
+
+        canvas.addEventListener('mousemove', mousemove_event, false);
+        canvas.addEventListener('mousedown', mousedown_event, false);
+        canvas.addEventListener('mouseup', mouseup_event, false);
+
+        window.requestAnimationFrame(render);
+    };
+    </script>
+  </body>
+</html>
